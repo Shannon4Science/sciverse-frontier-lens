@@ -7,6 +7,45 @@ return structured evidence to the source text.
 
 The application runs locally with a Python backend and a React frontend.
 
+## Product tour
+
+### Build a topic study
+
+Ask a research question to retrieve seed papers, expand their extracted
+structure, and generate a grounded reading path. The guide is based on Paper
+Schema entities and relations rather than sending complete papers to the
+optional model.
+
+![Topic study with a grounded guide and paper reading path](docs/images/frontierlens-topic-study.jpg)
+
+### Inspect the relationship graph
+
+Switch to the graph view to compare paper nodes, extracted entity categories,
+paper-internal relations, and resolved paper-to-paper citations within the same
+bounded topic.
+
+![Topic relationship graph grouped by semantic node category](docs/images/frontierlens-topic-relation-graph.jpg)
+
+### Open a paper's extracted structure
+
+Each paper opens with a concise overview and a card-based knowledge structure.
+Entity groups and relation lines expose methods, contributions, experimental
+setups, findings, measures, and document structure without requiring the reader
+to scan the full paper first.
+
+![Paper overview and card-based extracted knowledge structure](docs/images/frontierlens-paper-structure.jpg)
+
+### Trace an entity back to the paper
+
+Selecting an entity opens the ordered paper text, jumps to its provenance
+location, and highlights the supporting paragraph. DOI and arXiv links remain
+available when the metadata provides them.
+
+![Entity provenance highlighted in the ordered full-text reader](docs/images/frontierlens-entity-fulltext.jpg)
+
+Screenshots show live Sciverse results captured from a locally running
+FrontierLens instance. Results may change as the Paper Schema corpus evolves.
+
 ## What it does
 
 - Builds a bounded topic graph from keyword seed papers.

@@ -129,6 +129,10 @@ A fresh installation starts unconfigured and shows no research data. Open
 **Test online API** before saving. Once connected, all papers and graph facts
 are fetched from the live Sciverse API.
 
+**No `.env` file is required for normal use.** Configure the Sciverse
+connection and the optional model connection entirely from the web settings
+page.
+
 The Sciverse and optional model connections are managed from the same page and
 stored together as plaintext in `local.config.json` in the directory where
 FrontierLens is started. The file is ignored by Git and written with owner-only
@@ -141,10 +145,12 @@ OpenAI-compatible model endpoints may use HTTP or HTTPS in this standalone
 local application. Prefer HTTPS because plain HTTP does not encrypt the model
 secret or prompts in transit.
 
-## Environment configuration
+## Optional environment configuration
 
-The settings page is the normal local workflow. For scripted local startup,
-create `.env` from `.env.example` and optionally provide a default:
+Environment variables are only an optional interface for scripted, headless,
+development, or managed startup. Normal local users should use the web settings
+page and can skip this section. To provide startup defaults, create `.env` from
+`.env.example`:
 
 ```dotenv
 SCIVERSE_API_TOKEN=<server-side token>

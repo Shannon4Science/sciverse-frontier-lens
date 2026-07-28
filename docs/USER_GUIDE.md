@@ -20,6 +20,9 @@ Open **Connection settings** and enter:
 - Sciverse API key
 - Request timeout
 
+Normal local use does not require a `.env` file. Configure the Sciverse
+connection and the optional model connection from this settings page.
+
 Use **Test online API** to verify the current form. Testing does not save the
 form. Use **Save connection** only after the test succeeds.
 

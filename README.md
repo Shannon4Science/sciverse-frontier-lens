@@ -1,5 +1,7 @@
 # FrontierLens
 
+**English** | [简体中文](README.zh-CN.md)
+
 FrontierLens is a local AI research reader powered by the public Sciverse Paper
 Schema API. It helps a reader discover papers, follow a guided reading path,
 inspect extracted entities and relations, traverse resolved citations, and
@@ -9,41 +11,59 @@ The application runs locally with a Python backend and a React frontend.
 
 ## Product tour
 
-### Build a topic study
+### 1. Choose a research question
 
-Ask a research question to retrieve seed papers, expand their extracted
-structure, and generate a grounded reading path. The guide is based on Paper
-Schema entities and relations rather than sending complete papers to the
-optional model.
+Start with a natural-language research question or choose a prepared example.
+FrontierLens turns it into a bounded retrieval scope grounded in the live
+Sciverse Paper Schema corpus.
 
-![Topic study with a grounded guide and paper reading path](docs/images/frontierlens-topic-study.jpg)
+![Choose a research question](docs/images/promo/01-select-research-question.png)
 
-### Inspect the relationship graph
+### 2. Enter the research workflow
 
-Switch to the graph view to compare paper nodes, extracted entity categories,
-paper-internal relations, and resolved paper-to-paper citations within the same
-bounded topic.
+FrontierLens plans retrieval terms, finds seed papers, expands their extracted
+structure, assembles the topic graph, and generates a grounded reading guide.
+The optional model receives structured Paper Schema material rather than
+complete papers.
 
-![Topic relationship graph grouped by semantic node category](docs/images/frontierlens-topic-relation-graph.jpg)
+![Enter the guided research workflow](docs/images/promo/02-research-workflow.png)
 
-### Open a paper's extracted structure
+### 3. Browse the paper-card reading path
+
+Papers are organized as a reading path rather than a flat result list. Each
+card surfaces the title, contribution, and concise context needed to decide
+what to read next.
+
+![Browse grounded paper cards](docs/images/promo/03-paper-card-view.png)
+
+### 4. Inspect the graph network
+
+Switch to the graph view to compare paper nodes, extracted Entity categories,
+paper-internal Relations, resolved paper-to-paper citations, and explained
+related-paper suggestions within the same bounded topic.
+
+![Inspect the topic graph network](docs/images/promo/04-graph-network-view.png)
+
+### 5. Expand a paper and continue through related work
 
 Each paper opens with a concise overview and a card-based knowledge structure.
 Entity groups and relation lines expose methods, contributions, experimental
 setups, findings, measures, and document structure without requiring the reader
-to scan the full paper first.
+to scan the full paper first. Beyond the single-paper guide, resolved citations
+and explained related-paper links connect the paper to other paper topologies
+for systematic, associative learning.
 
-![Paper overview and card-based extracted knowledge structure](docs/images/frontierlens-paper-structure.jpg)
+![Expand a paper's overview and knowledge structure](docs/images/promo/05-paper-detail-expanded.png)
 
-### Trace an entity back to the paper
+### 6. Trace structured knowledge back to the source
 
-Selecting an entity opens the ordered paper text, jumps to its provenance
-location, and highlights the supporting paragraph. DOI and arXiv links remain
-available when the metadata provides them.
+Selecting an Entity or Evidence item opens the ordered paper text, jumps to its
+provenance location, and highlights the supporting paragraph. DOI and arXiv
+links remain available when the metadata provides them.
 
 ![Entity provenance highlighted in the ordered full-text reader](docs/images/frontierlens-entity-fulltext.jpg)
 
-Screenshots show live Sciverse results captured from a locally running
+All screenshots show live Sciverse results captured from a locally running
 FrontierLens instance. Results may change as the Paper Schema corpus evolves.
 
 ## What it does
@@ -56,7 +76,7 @@ FrontierLens instance. Results may change as the Paper Schema corpus evolves.
 - Opens resolved citation targets by `schema_id`.
 - Loads a complete paper-scoped Entity and Relation graph on demand.
 - Reads paper text in ordered paragraph batches through the public provenance
-  contract, without direct OpenSearch access or local paper storage.
+  API, without direct OpenSearch access or local paper storage.
 - Searches high-value Evidence and traces Entity/Evidence selections back to
   exact source paragraphs, with a labeled paper-local fallback when no anchor
   exists.
@@ -182,7 +202,7 @@ npm --prefix frontend audit --omit=dev --audit-level=high
 
 ## Documentation
 
-Detailed contracts and operations are documented in
+Detailed API behavior and operations are documented in
 [docs/API_AND_OPERATIONS.md](docs/API_AND_OPERATIONS.md). Architecture decisions
 are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 The verified data and model boundary is recorded in

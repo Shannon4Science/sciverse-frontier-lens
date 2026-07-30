@@ -105,12 +105,12 @@ describe("FrontierLens unconfigured application", () => {
     });
     const separator = screen.getByRole("separator", { name: "Resize sidebar" });
 
-    expect(separator).toHaveAttribute("aria-valuenow", "306");
+    expect(separator).toHaveAttribute("aria-valuenow", "264");
     fireEvent.keyDown(separator, { key: "ArrowRight" });
-    expect(separator).toHaveAttribute("aria-valuenow", "322");
+    expect(separator).toHaveAttribute("aria-valuenow", "280");
     fireEvent(separator, new MouseEvent("pointerdown", {
       bubbles: true,
-      clientX: 322,
+      clientX: 280,
     }));
     fireEvent(window, new MouseEvent("pointermove", {
       bubbles: true,
@@ -119,7 +119,7 @@ describe("FrontierLens unconfigured application", () => {
     expect(separator).toHaveAttribute("aria-valuenow", "402");
     fireEvent(window, new MouseEvent("pointerup", { bubbles: true }));
     fireEvent.doubleClick(separator);
-    expect(separator).toHaveAttribute("aria-valuenow", "306");
+    expect(separator).toHaveAttribute("aria-valuenow", "264");
   });
 
   it("tests the current model draft without saving it", async () => {

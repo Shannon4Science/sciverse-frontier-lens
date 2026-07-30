@@ -200,7 +200,7 @@ function initialEdgeVisibility(): Record<EdgeType, boolean> {
   ) as Record<EdgeType, boolean>;
 }
 
-const DEFAULT_OVERVIEW_SIDEBAR_WIDTH = 306;
+const DEFAULT_OVERVIEW_SIDEBAR_WIDTH = 264;
 const MIN_OVERVIEW_SIDEBAR_WIDTH = 260;
 const MAX_OVERVIEW_SIDEBAR_WIDTH = 480;
 const DEFAULT_RESEARCH_GUIDE_WIDTH = 520;
@@ -1552,6 +1552,7 @@ function App() {
         <header className="stage-toolbar">
           <div className="stage-heading">
             <div>
+              <span className="stage-kicker">Sciverse · FrontierLens</span>
               <h1>{mode === "overview" ? tr("知识发现图谱", "Knowledge Discovery Map") : mode === "paper" ? tr("论文阅读", "Paper Reading") : mode === "settings" ? tr("本地连接设置", "Local Connection Settings") : tr("主题研究", "Topic Research")}</h1>
               <p>
                 {mode === "settings"
@@ -1869,7 +1870,11 @@ export function OverviewSidebar(props: OverviewSidebarProps) {
     <aside className="overview-sidebar">
       <div className="brand">
         <span className="brand-mark"><img src="/frontierlens-icon.png?v=3" alt="" /></span>
-        <div><strong>FrontierLens</strong><p>{tr("看见、理解并探索 AI 研究前沿。", "See, understand, and explore the frontiers of AI.")}</p></div>
+        <div>
+          <small>Sciverse · Paper Schema</small>
+          <strong>FrontierLens</strong>
+          <p>{tr("看见、理解并探索 AI 研究前沿。", "See, understand, and explore the frontiers of AI.")}</p>
+        </div>
       </div>
       <div className="stats-grid">
         <Stat value={capabilities?.coverage.paper_count || "1M+"} label={tr("Schema 论文", "Schema papers")} />

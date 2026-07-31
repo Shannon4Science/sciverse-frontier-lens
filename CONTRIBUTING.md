@@ -7,7 +7,7 @@ Backend development requires Python 3.11+ and
 Node.js 22+.
 
 ```bash
-git clone https://github.com/opendatalab/sciverse-frontier-lens.git
+git clone https://github.com/Shannon4Science/sciverse-frontier-lens.git
 cd sciverse-frontier-lens
 make setup
 ```

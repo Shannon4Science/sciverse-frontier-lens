@@ -107,7 +107,7 @@ Paper Schema 语料持续更新，实际结果可能发生变化。
 ## 安装与运行
 
 ```bash
-git clone https://github.com/opendatalab/sciverse-frontier-lens.git
+git clone https://github.com/Shannon4Science/sciverse-frontier-lens.git
 cd sciverse-frontier-lens
 
 make setup

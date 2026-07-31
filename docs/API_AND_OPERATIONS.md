@@ -10,7 +10,7 @@
 | POST | `/api/topic-explore` | Query plan, bounded graph and grounded guide in one request |
 | POST | `/api/topic-explore/stream` | The same result with real NDJSON progress milestones |
 | POST | `/api/topic-graph` | Seed search plus bounded related/citation expansion |
-| POST | `/api/topic-guide` | Model-enhanced or deterministic closed-catalog reading path |
+| POST | `/api/topic-guide` | LLM-generated closed-catalog reading path |
 | GET | `/api/papers/{schema_id}` | Public paper metadata used by the opening progress flow |
 | GET | `/api/papers/{schema_id}/overview` | Schema-grounded paper overview in the requested language |
 | GET | `/api/papers/{schema_id}/reading-source` | Select the requested paper or an equivalent version with paragraph data |
@@ -80,6 +80,12 @@ exact Entity provenance. No paragraph, paper, or graph response is written to
 
 Network failures, 429, and eligible 5xx responses receive bounded retries.
 Validation and authentication failures are not retried.
+LLM configuration is mandatory for discovery, topic exploration, topic graph,
+topic guide, and paper overview routes. A missing configuration returns 503.
+An LLM network, HTTP, parsing, or contract failure returns
+`MODEL_REQUEST_FAILED` with HTTP 502, or a terminal error event on the NDJSON
+exploration stream. Model failures never return a dictionary or deterministic
+guide as a successful result.
 
 ## Environment
 
@@ -131,6 +137,6 @@ No frontend rebuild is required.
 ## Rollback
 
 Check out the previous release and reinstall its Python and npm dependencies.
-The application performs read-only Sciverse calls. The optional model
+The application performs read-only Sciverse calls. The required model
 configuration is local user state and does not require a data migration. Keep
-the same key unless rotation caused the incident.
+the same keys unless rotation caused the incident.

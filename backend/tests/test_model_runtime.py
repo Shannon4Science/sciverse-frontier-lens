@@ -8,9 +8,14 @@ from httpx import Response
 from pydantic import SecretStr
 
 from app.assembly import assemble_paper_graph
-from app.guide import build_deterministic_guide, build_deterministic_paper_overview
+from app.guide import build_deterministic_guide
 from app.model_config import ModelConfigStore, ModelConfigUpdate, ModelConnection
-from app.model_runtime import GuideGenerator, ModelRuntime, QueryPlanner
+from app.model_runtime import (
+    GuideGenerator,
+    ModelRuntime,
+    ModelRuntimeError,
+    QueryPlanner,
+)
 from app.models import (
     GraphEdge,
     GraphNode,
@@ -43,29 +48,23 @@ def test_model_config_is_owner_only_and_never_returns_secret(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_chinese_query_uses_local_glossary_without_model(tmp_path) -> None:
+async def test_chinese_query_requires_configured_model(tmp_path) -> None:
     store = ModelConfigStore(
         tmp_path / "model.json",
         ModelConnection(base_url="https://models.example/v1", model="demo"),
     )
-    plan = await QueryPlanner(ModelRuntime(store)).plan("大模型推理速度优化")
-
-    assert plan.rewrite_source == "dictionary"
-    assert plan.search_queries == ["large language model inference acceleration optimization"]
-    assert plan.warning is None
+    with pytest.raises(ModelRuntimeError, match="not configured or enabled"):
+        await QueryPlanner(ModelRuntime(store)).plan("大模型推理速度优化")
 
 
 @pytest.mark.asyncio
-async def test_mixed_transform_query_uses_deterministic_fallback(tmp_path) -> None:
+async def test_mixed_transform_query_requires_configured_model(tmp_path) -> None:
     store = ModelConfigStore(
         tmp_path / "model.json",
         ModelConnection(base_url="https://models.example/v1", model="demo"),
     )
-    plan = await QueryPlanner(ModelRuntime(store)).plan("学习transform架构相关")
-
-    assert plan.rewrite_source == "dictionary"
-    assert plan.search_queries == ["transformer architecture"]
-    assert plan.warning is None
+    with pytest.raises(ModelRuntimeError, match="not configured or enabled"):
+        await QueryPlanner(ModelRuntime(store)).plan("学习transform架构相关")
 
 
 @pytest.mark.asyncio
@@ -292,12 +291,9 @@ async def test_paper_overview_uses_requested_language_and_grounded_contract(
         entities_truncated=False,
         relations_truncated=False,
     )
-    fallback = build_deterministic_paper_overview(paper, "zh", graph)
-
     overview = await GuideGenerator(ModelRuntime(store)).generate_paper_overview(
         paper,
         graph,
-        fallback,
         "zh",
     )
 
@@ -421,12 +417,9 @@ async def test_topic_guide_uses_long_task_timeout_and_reader_facing_contract(
         )
     )
     graph = _topic_graph_fixture()
-    fallback = build_deterministic_guide(graph, "研究 Transformer 架构演变", "zh")
-
     guide = await GuideGenerator(ModelRuntime(store)).generate(
         graph,
         "研究 Transformer 架构演变",
-        fallback,
         "zh",
     )
 
@@ -446,7 +439,7 @@ async def test_topic_guide_uses_long_task_timeout_and_reader_facing_contract(
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_topic_guide_fallback_warning_matches_requested_language(tmp_path) -> None:
+async def test_topic_guide_model_failure_is_not_downgraded(tmp_path) -> None:
     store = ModelConfigStore(
         tmp_path / "model.json",
         ModelConnection(
@@ -459,16 +452,9 @@ async def test_topic_guide_fallback_warning_matches_requested_language(tmp_path)
         return_value=Response(500, json={"error": {"message": "temporary"}})
     )
     graph = _topic_graph_fixture()
-    fallback = build_deterministic_guide(graph, "研究 Transformer 架构演变", "zh")
-
-    guide = await GuideGenerator(ModelRuntime(store)).generate(
-        graph,
-        "研究 Transformer 架构演变",
-        fallback,
-        "zh",
-    )
-
-    assert guide.generation_mode == "deterministic"
-    assert guide.model_warning is not None
-    assert guide.model_warning.startswith("模型导读未完成")
-    assert "Schema 元数据和论文关系" in guide.model_warning
+    with pytest.raises(ModelRuntimeError, match="HTTP 500"):
+        await GuideGenerator(ModelRuntime(store)).generate(
+            graph,
+            "研究 Transformer 架构演变",
+            "zh",
+        )

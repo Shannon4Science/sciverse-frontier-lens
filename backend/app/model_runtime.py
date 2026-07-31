@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import logging
 import re
 import time
 from typing import Any, Literal
@@ -18,8 +17,6 @@ from app.models import (
     QueryPlan,
     ReadingGuide,
 )
-
-logger = logging.getLogger(__name__)
 
 
 class ModelRuntimeError(RuntimeError):
@@ -161,11 +158,11 @@ class QueryPlanner:
     async def plan(self, query: str) -> QueryPlan:
         normalized = " ".join(query.split())
         language = _language(normalized)
-        fallback = _fallback_plan(normalized, language)
         connection = self.runtime.store.load()
-        should_rewrite = language in {"zh", "mixed"} or _looks_like_question(normalized)
-        if not connection.configured or not should_rewrite:
-            return fallback
+        if not connection.configured:
+            raise ModelRuntimeError(
+                "LLM is not configured or enabled. Configure it in Local Settings."
+            )
         try:
             raw = await self.runtime.complete_json(
                 system=(
@@ -185,7 +182,9 @@ class QueryPlanner:
             parsed = QueryRewritePayload.model_validate(raw)
             queries = _clean_queries(parsed.search_queries)
             if not queries:
-                return fallback
+                raise ModelRuntimeError(
+                    "LLM query planning returned no usable search phrases"
+                )
             return QueryPlan(
                 original_query=normalized,
                 search_queries=queries,
@@ -193,15 +192,10 @@ class QueryPlanner:
                 language=language,
                 rewrite_source="model",
             )
-        except (ModelRuntimeError, ValueError):
-            return fallback.model_copy(
-                update={
-                    "warning": (
-                        "Model query rewrite was unavailable; deterministic keyword "
-                        "normalization was used."
-                    )
-                }
-            )
+        except ValueError as exc:
+            raise ModelRuntimeError(
+                "LLM query planning returned invalid structured output"
+            ) from exc
 
 
 class GuideGenerator:
@@ -212,12 +206,13 @@ class GuideGenerator:
         self,
         graph: GraphPayload,
         query: str,
-        fallback: ReadingGuide,
         response_language: Literal["zh", "en"] | None = None,
     ) -> ReadingGuide:
         connection = self.runtime.store.load()
         if not connection.configured:
-            return fallback
+            raise ModelRuntimeError(
+                "LLM is not configured or enabled. Configure it in Local Settings."
+            )
         papers = [
             {
                 "schema_id": node.schema_id,
@@ -232,7 +227,9 @@ class GuideGenerator:
             if node.paper is not None
         ][:20]
         if not papers:
-            return fallback
+            raise ModelRuntimeError(
+                "No papers were returned, so the LLM reading guide could not be generated"
+            )
         node_catalog = {node.id: node for node in graph.nodes}
         paper_edges: list[dict[str, Any]] = []
         for edge in graph.edges:
@@ -295,26 +292,22 @@ class GuideGenerator:
                 request_timeout_seconds=max(connection.timeout_seconds, 90),
             )
             parsed = GuidePayload.model_validate(raw)
-        except (ModelRuntimeError, ValueError) as exc:
-            logger.warning("topic guide model fallback: %s", exc)
-            return fallback.model_copy(
-                update={
-                    "model_warning": (
-                        ("模型导读未完成，当前展示基于 Schema 元数据和论文关系自动整理的导读。")
-                        if selected_language == "zh"
-                        else (
-                            "The model guide did not complete; this guide was assembled "
-                            "from Schema metadata and paper relationships."
-                        )
-                    )
-                }
-            )
+        except ValueError as exc:
+            raise ModelRuntimeError(
+                "LLM reading guide returned invalid structured output"
+            ) from exc
         catalog = {node.schema_id: node for node in graph.nodes if node.paper is not None}
         items: list[GuideItem] = []
         seen: set[str] = set()
         for candidate in parsed.items:
             node = catalog.get(candidate.schema_id)
             if node is None or candidate.schema_id in seen:
+                continue
+            rationale = _reader_facing_guide_text(
+                candidate.rationale,
+                selected_language,
+            ).strip()
+            if not rationale:
                 continue
             seen.add(candidate.schema_id)
             items.append(
@@ -323,36 +316,68 @@ class GuideGenerator:
                     schema_id=candidate.schema_id,
                     title=node.label,
                     role=candidate.role,
-                    rationale=_reader_facing_guide_text(
-                        candidate.rationale,
-                        selected_language,
-                    )[:500],
+                    rationale=rationale[:500],
                 )
             )
         if not items:
-            return fallback
-        return fallback.model_copy(
-            update={
-                "title": parsed.title.strip()[:300] or fallback.title,
-                "summary": (
-                    _reader_facing_guide_text(parsed.summary, selected_language)[:1200]
-                    or fallback.summary
-                ),
-                "items": items,
-                "generation_mode": "model",
-            }
+            raise ModelRuntimeError(
+                "LLM reading guide did not reference any returned papers"
+            )
+        title = parsed.title.strip()
+        summary = _reader_facing_guide_text(
+            parsed.summary,
+            selected_language,
+        ).strip()
+        if not title or not summary:
+            raise ModelRuntimeError(
+                "LLM reading guide returned incomplete structured output"
+            )
+        return ReadingGuide(
+            query=query,
+            title=title[:300],
+            summary=summary[:1200],
+            items=items,
+            scope_note=(
+                "本导读仅覆盖已完成 Sciverse Paper Schema 抽取的 100 万+ AI 会议论文。"
+                if selected_language == "zh"
+                else (
+                    "This guide is limited to the 1M+ AI conference papers with "
+                    "completed Sciverse Paper Schema extraction."
+                )
+            ),
+            caveats=(
+                [
+                    "该顺序仅用于辅助探索，不代表事实时间线。",
+                    "相关建议表示排序相似性；引用边表示已解析参考文献。",
+                    "空结果不代表学术文献中不存在该研究。",
+                ]
+                if selected_language == "zh"
+                else [
+                    "The order is an exploration aid, not a factual chronology.",
+                    (
+                        "Related suggestions indicate ranked similarity; citation "
+                        "edges indicate resolved references."
+                    ),
+                    (
+                        "An empty result does not imply that the research is absent "
+                        "from scholarly literature."
+                    ),
+                ]
+            ),
+            generation_mode="model",
         )
 
     async def generate_paper_overview(
         self,
         paper: PaperCard,
         graph: GraphPayload,
-        fallback: PaperOverview,
         response_language: Literal["zh", "en"],
     ) -> PaperOverview:
         connection = self.runtime.store.load()
         if not connection.configured:
-            return fallback
+            raise ModelRuntimeError(
+                "LLM is not configured or enabled. Configure it in Local Settings."
+            )
         output_language = "Chinese" if response_language == "zh" else "English"
         facts = {
             "schema_id": paper.schema_id,
@@ -424,31 +449,24 @@ class GuideGenerator:
                 request_timeout_seconds=max(connection.timeout_seconds, 60),
             )
             parsed = PaperOverviewPayload.model_validate(raw)
-        except (ModelRuntimeError, ValueError) as exc:
-            logger.warning("paper overview model fallback: %s", exc)
-            return fallback.model_copy(
-                update={
-                    "model_warning": (
-                        (
-                            "模型论文概述未完成，当前展示基于 Schema 元数据、"
-                            "Entity 与 Relation 自动整理的概述。"
-                        )
-                        if response_language == "zh"
-                        else (
-                            "The model paper overview did not complete; this overview "
-                            "was assembled from Schema metadata, Entities, and Relations."
-                        )
-                    )
-                }
-            )
+        except ValueError as exc:
+            raise ModelRuntimeError(
+                "LLM paper overview returned invalid structured output"
+            ) from exc
         focus_points = [point.strip()[:500] for point in parsed.focus_points if point.strip()][:4]
-        return fallback.model_copy(
-            update={
-                "summary": parsed.summary.strip()[:1800] or fallback.summary,
-                "why_read": parsed.why_read.strip()[:900] or fallback.why_read,
-                "focus_points": focus_points or fallback.focus_points,
-                "generation_mode": "model",
-            }
+        summary = parsed.summary.strip()
+        why_read = parsed.why_read.strip()
+        if not summary or not why_read or not focus_points:
+            raise ModelRuntimeError(
+                "LLM paper overview returned incomplete structured output"
+            )
+        return PaperOverview(
+            schema_id=paper.schema_id,
+            language=response_language,
+            summary=summary[:1800],
+            why_read=why_read[:900],
+            focus_points=focus_points,
+            generation_mode="model",
         )
 
 

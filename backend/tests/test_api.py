@@ -8,8 +8,14 @@ from pydantic import ValidationError
 
 from app.local_config import LocalConfigDocument
 from app.main import app
-from app.model_config import ModelConfigStore, ModelConnection
-from app.model_runtime import GuideGenerator, ModelRuntime, QueryPlanner
+from app.model_config import ModelConfigStore, ModelConfigUpdate, ModelConnection
+from app.model_runtime import (
+    GuideGenerator,
+    ModelRuntime,
+    ModelRuntimeError,
+    QueryPlanner,
+)
+from app.models import QueryPlan, ReadingGuide
 from app.requests import ProvenanceInput, TopicGraphInput
 from app.sciverse_config import SciverseConfigStore, SciverseConnection
 
@@ -35,6 +41,16 @@ def isolate_unconfigured_application(tmp_path) -> None:
     app.state.gateway = None
     app.state.product_capabilities = app.state.product_capabilities.model_copy(
         update={"mode": "unconfigured"}
+    )
+
+
+def configure_model() -> None:
+    app.state.model_store.update(
+        ModelConfigUpdate(
+            base_url="https://models.example/v1",
+            model="test",
+            api_key="unit-test-key",
+        )
     )
 
 
@@ -297,7 +313,43 @@ def test_topic_exploration_stream_reports_real_stage_events() -> None:
         ) -> tuple[list[dict[str, object]], bool]:
             return ([], False)
 
+    class TopicPlanner:
+        async def plan(self, query: str) -> QueryPlan:
+            return QueryPlan(
+                original_query=query,
+                search_queries=["transformer architecture"],
+                keywords=["transformer", "architecture"],
+                language="en",
+                rewrite_source="model",
+            )
+
+    class TopicGuide:
+        async def generate(
+            self,
+            graph,
+            query: str,
+            response_language: str,
+        ) -> ReadingGuide:
+            return ReadingGuide(
+                query=query,
+                title="Transformer reading path",
+                summary="A model-generated guide grounded in the returned graph.",
+                items=[{
+                    "order": 1,
+                    "schema_id": "paper-1",
+                    "title": "Attention Paper",
+                    "role": "seed",
+                    "rationale": "Start with the retrieved seed.",
+                }],
+                scope_note="Current Paper Schema corpus only.",
+                caveats=[],
+                generation_mode="model",
+            )
+
+    configure_model()
     app.state.gateway = TopicGateway()
+    app.state.query_planner = TopicPlanner()
+    app.state.guide_generator = TopicGuide()
     response = client.post(
         "/api/topic-explore/stream",
         json={
@@ -337,6 +389,28 @@ def test_topic_exploration_stream_reports_real_stage_events() -> None:
     assert result["graph"]["nodes"][1]["anchors"] == [
         {"paragraph_id": None, "marker_num": 12}
     ]
+
+
+def test_topic_exploration_stream_stops_on_model_failure() -> None:
+    class FailingPlanner:
+        async def plan(self, query: str) -> QueryPlan:
+            raise ModelRuntimeError("model endpoint is unreachable")
+
+    configure_model()
+    app.state.gateway = object()
+    app.state.query_planner = FailingPlanner()
+
+    response = client.post(
+        "/api/topic-explore/stream",
+        json={"query": "transformer architecture", "response_language": "en"},
+    )
+
+    assert response.status_code == 200
+    events = [json.loads(line) for line in response.text.splitlines()]
+    assert events[-1]["type"] == "error"
+    assert events[-1]["step"] == "keywords"
+    assert events[-1]["message"] == "model endpoint is unreachable"
+    assert all(event["type"] != "result" for event in events)
 
 
 def test_paper_paragraphs_reads_an_ordered_public_marker_batch() -> None:
@@ -461,22 +535,27 @@ def test_reading_source_selects_one_equivalent_version_with_full_text() -> None:
     )
 
 
-def test_paper_overview_returns_language_specific_grounded_fallback() -> None:
+def test_paper_overview_requires_model_configuration() -> None:
+    app.state.gateway = object()
+
+    response = client.get(
+        "/api/papers/paper-1/overview?response_language=zh"
+    )
+
+    assert response.status_code == 503
+    assert "LLM is not configured or enabled" in response.json()["detail"]
+
+
+def test_paper_overview_returns_terminal_model_failure() -> None:
     class OverviewGateway:
         async def paper(
             self,
             schema_id: str,
             request_id: str,
         ) -> dict[str, object] | None:
-            assert schema_id == "paper-1"
-            assert request_id
             return {
-                "schema_id": "paper-1",
+                "schema_id": schema_id,
                 "title": "Training-Free Transformer Architecture Search",
-                "abstract": "A training-free search method.",
-                "research_problem": "Reduce architecture-search cost.",
-                "central_contribution": "A zero-cost proxy.",
-                "topics": ["Transformer", "Architecture Search"],
             }
 
         async def entities(
@@ -486,13 +565,7 @@ def test_paper_overview_returns_language_specific_grounded_fallback() -> None:
             *,
             max_items: int,
         ) -> tuple[list[dict[str, object]], bool]:
-            assert schema_id == "paper-1"
-            assert max_items == 120
-            return ([{
-                "entity_id": "component-1",
-                "entity_type": "Component",
-                "name": "Zero-cost proxy",
-            }], False)
+            return ([], False)
 
         async def relations(
             self,
@@ -501,23 +574,23 @@ def test_paper_overview_returns_language_specific_grounded_fallback() -> None:
             *,
             max_items: int,
         ) -> tuple[list[dict[str, object]], bool]:
-            assert schema_id == "paper-1"
-            assert max_items == 180
             return ([], False)
 
+    class FailingGuide:
+        async def generate_paper_overview(self, *args, **kwargs):
+            raise ModelRuntimeError("model endpoint is unreachable")
+
+    configure_model()
     app.state.gateway = OverviewGateway()
+    app.state.guide_generator = FailingGuide()
+
     response = client.get(
-        "/api/papers/paper-1/overview?response_language=zh"
+        "/api/papers/paper-1/overview?response_language=en"
     )
 
-    assert response.status_code == 200
-    body = response.json()
-    assert body["schema_id"] == "paper-1"
-    assert body["language"] == "zh"
-    assert body["generation_mode"] == "deterministic"
-    assert body["summary"] == "A zero-cost proxy."
-    assert body["focus_points"][0].startswith("研究问题：")
-    assert any("1 个 Entity" in point for point in body["focus_points"])
+    assert response.status_code == 502
+    assert response.json()["error"]["code"] == "MODEL_REQUEST_FAILED"
+    assert response.json()["error"]["message"] == "model endpoint is unreachable"
 
 
 def test_paper_paragraphs_uses_an_equivalent_source_version_when_needed() -> None:

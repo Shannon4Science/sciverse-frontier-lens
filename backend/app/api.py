@@ -18,7 +18,6 @@ from app.assembly import (
     paper_card,
 )
 from app.gateway import PaperSchemaGateway
-from app.guide import build_deterministic_guide, build_deterministic_paper_overview
 from app.model_config import ModelConfigStatus, ModelConfigStore, ModelConfigUpdate
 from app.model_runtime import (
     GuideGenerator,
@@ -276,6 +275,17 @@ def model_runtime(request: Request) -> ModelRuntime:
     return request.app.state.model_runtime
 
 
+def require_model(request: Request) -> None:
+    if not model_store(request).status().configured:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "LLM is not configured or enabled. Configure an LLM Base URL, "
+                "model, and API key in Local Settings before continuing."
+            ),
+        )
+
+
 def sciverse_store(request: Request) -> SciverseConfigStore:
     return request.app.state.sciverse_store
 
@@ -391,6 +401,7 @@ async def discovery_map(
     request: Request,
     service: GatewayDependency,
 ) -> GraphPayload:
+    require_model(request)
     graph, _ = await _build_topic_graph(
         TopicGraphInput(
             query="large language models",
@@ -410,6 +421,7 @@ async def topic_explore(
     request: Request,
     service: GatewayDependency,
 ) -> TopicExploration:
+    require_model(request)
     return await _run_topic_exploration(
         body,
         request_id(request),
@@ -425,6 +437,7 @@ async def topic_explore_stream(
     request: Request,
     service: GatewayDependency,
 ) -> StreamingResponse:
+    require_model(request)
     queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
     current_step = "understand"
     started = time.perf_counter()
@@ -516,15 +529,9 @@ async def _run_topic_exploration(
         "running",
         "Generating a guide from the structured Schema graph; no full text is used.",
     )
-    fallback = build_deterministic_guide(
-        graph,
-        body.query or "Filtered paper set",
-        body.response_language,
-    )
     guide = await guide_builder.generate(
         graph,
         body.query or "Filtered paper set",
-        fallback,
         body.response_language,
     )
     await _emit_progress(
@@ -543,6 +550,7 @@ async def topic_graph(
     request: Request,
     service: GatewayDependency,
 ) -> GraphPayload:
+    require_model(request)
     graph, _ = await _build_topic_graph(
         body,
         request_id(request),
@@ -558,21 +566,16 @@ async def topic_guide(
     request: Request,
     service: GatewayDependency,
 ) -> ReadingGuide:
+    require_model(request)
     graph, _ = await _build_topic_graph(
         body,
         request_id(request),
         service,
         query_planner(request),
     )
-    fallback = build_deterministic_guide(
-        graph,
-        body.query or "Filtered paper set",
-        body.response_language,
-    )
     return await guide_generator(request).generate(
         graph,
         body.query or "Filtered paper set",
-        fallback,
         body.response_language,
     )
 
@@ -899,6 +902,7 @@ async def paper_overview(
     service: GatewayDependency,
     response_language: Literal["zh", "en"] = Query(default="en"),
 ) -> PaperOverview:
+    require_model(request)
     paper = await service.paper(schema_id, request_id(request))
     if paper is None:
         raise HTTPException(status_code=404, detail="paper not found")
@@ -920,15 +924,9 @@ async def paper_overview(
         entities_truncated=entities_truncated,
         relations_truncated=relations_truncated,
     )
-    fallback = build_deterministic_paper_overview(
-        public_paper,
-        response_language,
-        graph,
-    )
     return await guide_generator(request).generate_paper_overview(
         public_paper,
         graph,
-        fallback,
         response_language,
     )
 

@@ -495,6 +495,7 @@ function App() {
   const { language, setLanguage, tr } = useI18n();
   const [capabilities, setCapabilities] = useState<Capabilities | null>(null);
   const [sciverseStatus, setSciverseStatus] = useState<SciverseConfigStatus | null>(null);
+  const [modelStatus, setModelStatus] = useState<ModelConfigStatus | null>(null);
   const [graph, setGraph] = useState<GraphPayload | null>(null);
   const [discoveryGraph, setDiscoveryGraph] = useState<GraphPayload | null>(null);
   const [mode, setMode] = useState<AppMode>("overview");
@@ -574,11 +575,12 @@ function App() {
   const activeCanvasRef = cardViewActive ? cardRef : graphRef;
 
   useEffect(() => {
-    Promise.all([getCapabilities(), getSciverseConfig()])
-      .then(async ([nextCapabilities, nextStatus]) => {
+    Promise.all([getCapabilities(), getSciverseConfig(), getModelConfig()])
+      .then(async ([nextCapabilities, nextStatus, nextModelStatus]) => {
         setCapabilities(nextCapabilities);
         setSciverseStatus(nextStatus);
-        if (nextStatus.configured) {
+        setModelStatus(nextModelStatus);
+        if (nextStatus.configured && nextModelStatus.configured) {
           const nextGraph = await getDiscoveryMap();
           setDiscoveryGraph(nextGraph);
           setGraph(nextGraph);
@@ -661,17 +663,21 @@ function App() {
   async function applySciverseStatus(nextStatus: SciverseConfigStatus) {
     setSciverseStatus(nextStatus);
     setCapabilities(await getCapabilities());
-    if (!nextStatus.configured) {
+    if (!nextStatus.configured || !modelStatus?.configured) {
       setGraph(null);
       setDiscoveryGraph(null);
       levelHistory.current = [];
-      setMode("overview");
-      return;
     }
-    const nextGraph = await getDiscoveryMap();
-    setDiscoveryGraph(nextGraph);
-    setGraph(nextGraph);
-    setMode("overview");
+    setError("");
+  }
+
+  async function applyModelStatus(nextStatus: ModelConfigStatus) {
+    setModelStatus(nextStatus);
+    if (!nextStatus.configured || !sciverseStatus?.configured) {
+      setGraph(null);
+      setDiscoveryGraph(null);
+      levelHistory.current = [];
+    }
     setError("");
   }
 
@@ -759,18 +765,35 @@ function App() {
     setBusy(false);
   }
 
+  function requireConnections(): boolean {
+    const sciverseConfigured = Boolean(sciverseStatus?.configured);
+    const modelConfigured = Boolean(modelStatus?.configured);
+    if (sciverseConfigured && modelConfigured) return true;
+    setError(
+      !sciverseConfigured && !modelConfigured
+        ? tr(
+          "开始使用前，请先配置并启用 Sciverse API Key 和 LLM API Key。",
+          "Configure and enable both the Sciverse API key and the LLM API key before continuing.",
+        )
+        : !sciverseConfigured
+        ? tr(
+          "开始使用前，请先配置并启用 Sciverse API Key。",
+          "Configure and enable the Sciverse API key before continuing.",
+        )
+        : tr(
+          "开始使用前，请先配置并启用 LLM API Key。",
+          "Configure and enable the LLM API key before continuing.",
+        ),
+    );
+    openSettings();
+    return false;
+  }
+
   async function runExploration(
     value: string,
     responseLanguage: "zh" | "en",
   ) {
-    if (!sciverseStatus?.configured) {
-      setError(tr(
-        "请先在本地设置中配置并验证 Sciverse API Key。",
-        "Configure and verify a Sciverse API key in Local Settings first.",
-      ));
-      setMode("settings");
-      return;
-    }
+    if (!requireConnections()) return;
     activeTaskController.current?.abort();
     const controller = new AbortController();
     activeTaskController.current = controller;
@@ -876,6 +899,7 @@ function App() {
   }
 
   async function openPaper(schemaId: string) {
+    if (!requireConnections()) return;
     const origin: NavigationSnapshot = {
       activePaper,
       canonicalPaper,
@@ -1021,6 +1045,9 @@ function App() {
       if (graphResult.status === "rejected") {
         throw graphResult.reason;
       }
+      if (overviewResult.status === "rejected") {
+        throw overviewResult.reason;
+      }
       updateProgressStep("prepare", "running", tr(
         "正在准备论文知识视图",
         "Preparing the paper knowledge view",
@@ -1036,9 +1063,7 @@ function App() {
       setGraph(nextGraph);
       setCanonicalPaper(readingSource.canonical_document);
       setActivePaper(readingSource.active_document);
-      setPaperOverview(
-        overviewResult.status === "fulfilled" ? overviewResult.value : null,
-      );
+      setPaperOverview(overviewResult.value);
       setCitations(nextCitations);
       setEvidence(nextEvidence.items);
       setSelectedEvidence(nextEvidence.items[0] || null);
@@ -1076,12 +1101,11 @@ function App() {
       if (
         citationResult.status === "rejected"
         || evidenceResult.status === "rejected"
-        || overviewResult.status === "rejected"
         || paragraphResult.status === "rejected"
       ) {
         setError(tr(
-          "论文已打开，但概述、全文、引用或证据有部分未加载，可稍后重新打开论文重试。",
-          "The paper opened, but part of the overview, full text, citations, or evidence could not be loaded. Reopen it later to retry.",
+          "论文已打开，但全文、引用或证据有部分未加载，可稍后重新打开论文重试。",
+          "The paper opened, but part of the full text, citations, or evidence could not be loaded. Reopen it later to retry.",
         ));
       }
       setProgressTask(null);
@@ -1397,7 +1421,25 @@ function App() {
   }
 
   function closeSettings() {
-    setMode(returnMode.current);
+    const ready = Boolean(
+      sciverseStatus?.configured && modelStatus?.configured,
+    );
+    const targetMode = ready && graph ? returnMode.current : "overview";
+    setMode(targetMode);
+    if (!ready || targetMode !== "overview") return;
+    if (discoveryGraph) {
+      setGraph(discoveryGraph);
+      return;
+    }
+    setBusy(true);
+    setError("");
+    getDiscoveryMap()
+      .then((nextGraph) => {
+        setDiscoveryGraph(nextGraph);
+        setGraph(nextGraph);
+      })
+      .catch((reason: unknown) => setError(messageOf(reason)))
+      .finally(() => setBusy(false));
   }
 
   function exportGraph() {
@@ -1514,7 +1556,8 @@ function App() {
             askExample={askExample}
             busy={busy}
             capabilities={capabilities}
-            configured={Boolean(sciverseStatus?.configured)}
+            sciverseConfigured={Boolean(sciverseStatus?.configured)}
+            modelConfigured={Boolean(modelStatus?.configured)}
             openSettings={openSettings}
             overviewView={overviewView}
             visibleNodeTypes={visibleNodeTypes}
@@ -1556,7 +1599,7 @@ function App() {
               <h1>{mode === "overview" ? tr("知识发现图谱", "Knowledge Discovery Map") : mode === "paper" ? tr("论文阅读", "Paper Reading") : mode === "settings" ? tr("本地连接设置", "Local Connection Settings") : tr("主题研究", "Topic Research")}</h1>
               <p>
                 {mode === "settings"
-                  ? tr("连接 Sciverse 线上数据，并可选配置导读模型", "Connect Sciverse online data and optionally configure a guide model")
+                  ? tr("配置必需的 Sciverse 线上数据与导读模型连接", "Configure the required Sciverse data and guide-model connections")
                   : mode === "overview"
                   ? tr(
                     `${capabilities?.coverage.paper_count || "100万+"} 篇已完成 Schema 抽取的 AI 论文 · 从问题构建有限图谱`,
@@ -1601,7 +1644,8 @@ function App() {
             selectEdge={selectEdge}
             capabilities={capabilities}
             busy={busy}
-            configured={Boolean(sciverseStatus?.configured)}
+            sciverseConfigured={Boolean(sciverseStatus?.configured)}
+            modelConfigured={Boolean(modelStatus?.configured)}
             openSettings={openSettings}
             overviewView={overviewView}
             setOverviewView={setOverviewView}
@@ -1609,7 +1653,7 @@ function App() {
           />
         ) : null}
 
-        {mode === "research" && graph ? (
+        {mode === "research" && graph && guide ? (
           <ResearchWorkspace
             graph={graph}
             guide={guide}
@@ -1691,7 +1735,10 @@ function App() {
         ) : null}
 
         {mode === "settings" ? (
-          <LocalSettingsPage onSciverseChanged={applySciverseStatus} />
+          <LocalSettingsPage
+            onSciverseChanged={applySciverseStatus}
+            onModelChanged={applyModelStatus}
+          />
         ) : null}
       </main>
 
@@ -1839,7 +1886,8 @@ interface OverviewSidebarProps {
   askExample: (value: string) => void;
   busy: boolean;
   capabilities: Capabilities | null;
-  configured: boolean;
+  sciverseConfigured: boolean;
+  modelConfigured: boolean;
   openSettings: () => void;
   overviewView: OverviewView;
   visibleNodeTypes: Readonly<Record<string, boolean>>;
@@ -1857,7 +1905,8 @@ export function OverviewSidebar(props: OverviewSidebarProps) {
     askExample,
     busy,
     capabilities,
-    configured,
+    sciverseConfigured,
+    modelConfigured,
     openSettings,
     overviewView,
     visibleNodeTypes,
@@ -1866,6 +1915,14 @@ export function OverviewSidebar(props: OverviewSidebarProps) {
     toggleEdgeType,
   } = props;
   const { language, tr } = useI18n();
+  const explorationReady = sciverseConfigured && modelConfigured;
+  const connectionSummary = explorationReady
+    ? tr("Sciverse 与 LLM 均已连接", "Sciverse and LLM are connected")
+    : !sciverseConfigured && !modelConfigured
+    ? tr("需要配置 Sciverse 与 LLM Key", "Sciverse and LLM keys required")
+    : !sciverseConfigured
+    ? tr("需要配置 Sciverse Key", "Sciverse key required")
+    : tr("需要配置 LLM Key", "LLM key required");
   return (
     <aside className="overview-sidebar">
       <div className="brand">
@@ -1886,11 +1943,21 @@ export function OverviewSidebar(props: OverviewSidebarProps) {
         <label className="sidebar-label" htmlFor="question">{tr("研究问题", "Research Question")}</label>
         <form id="research-form" className="question-form" onSubmit={submitQuestion}>
           <textarea id="question" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={tr("输入 AI 研究问题，或选择下方示例", "Enter an AI research question or choose an example")} rows={3} />
-          <button type="submit" disabled={busy || !query.trim() || !configured}>{busy ? tr("构建中", "Building") : tr("探索", "Explore")}</button>
+          <button type="submit" disabled={busy || !query.trim()}>{busy ? tr("构建中", "Building") : tr("探索", "Explore")}</button>
         </form>
+        {!explorationReady ? (
+          <button className="research-prerequisite" type="button" onClick={openSettings}>
+            <CircleHelp size={15} />
+            <span>
+              <strong>{tr("探索前需完成连接配置", "Connections required before exploring")}</strong>
+              <small>{connectionSummary}</small>
+            </span>
+            <ChevronRight size={15} />
+          </button>
+        ) : null}
         <div className="example-list">
           {EXAMPLES[language].map((example, index) => (
-            <button type="button" key={example} disabled={!configured} onClick={() => askExample(example)}>
+            <button type="button" key={example} disabled={busy} onClick={() => askExample(example)}>
               <span>{String(index + 1).padStart(2, "0")}</span><strong>{example}</strong>
             </button>
           ))}
@@ -1945,13 +2012,13 @@ export function OverviewSidebar(props: OverviewSidebarProps) {
         </>
       ) : null}
       <button className="sidebar-settings" type="button" onClick={openSettings}>
-        <Settings2 size={16} /><span><strong>{tr("连接设置", "Connection settings")}</strong><small>{configured ? tr("Sciverse 线上数据已连接", "Sciverse online data connected") : tr("需要配置 Sciverse Key", "Sciverse key required")}</small></span>
+        <Settings2 size={16} /><span><strong>{tr("连接设置", "Connection settings")}</strong><small>{connectionSummary}</small></span>
       </button>
     </aside>
   );
 }
 
-function OverviewStage({ graph, filteredGraph, graphRef, cardRef, selectNode, selectEdge, capabilities, busy, configured, openSettings, overviewView, setOverviewView, openPaper }: {
+function OverviewStage({ graph, filteredGraph, graphRef, cardRef, selectNode, selectEdge, capabilities, busy, sciverseConfigured, modelConfigured, openSettings, overviewView, setOverviewView, openPaper }: {
   graph: GraphPayload | null;
   filteredGraph: GraphPayload | null;
   graphRef: React.RefObject<GraphCanvasHandle | null>;
@@ -1960,7 +2027,8 @@ function OverviewStage({ graph, filteredGraph, graphRef, cardRef, selectNode, se
   selectEdge: (edge: GraphEdge) => void;
   capabilities: Capabilities | null;
   busy: boolean;
-  configured: boolean;
+  sciverseConfigured: boolean;
+  modelConfigured: boolean;
   openSettings: () => void;
   overviewView: OverviewView;
   setOverviewView: (view: OverviewView) => void;
@@ -1987,15 +2055,17 @@ function OverviewStage({ graph, filteredGraph, graphRef, cardRef, selectNode, se
         overviewView === "cards"
           ? <DiscoveryBoard ref={cardRef} graph={graph} onOpenPaper={openPaper} />
           : <GraphCanvas ref={graphRef} graph={filteredGraph || graph} variant="overview" onSelectNode={selectNode} onSelectEdge={selectEdge} />
-      ) : configured ? (
+      ) : sciverseConfigured && modelConfigured ? (
         <div className="loading-map">{tr("正在从 Sciverse 加载发现图谱", "Loading the discovery map from Sciverse")}</div>
       ) : (
         <div className="connection-required">
           <Settings2 size={26} />
-          <h2>{tr("连接 Sciverse 后开始探索", "Connect Sciverse to start exploring")}</h2>
+          <h2>{modelConfigured
+            ? tr("连接 Sciverse 后开始探索", "Connect Sciverse to start exploring")
+            : tr("配置 Sciverse 与 LLM 后开始探索", "Configure Sciverse and LLM to start exploring")}</h2>
           <p>{tr(
-            "本应用不使用任何本地论文或演示数据。配置 API Key 后，论文、Entity、Relation、Citation 和 Evidence 均从 Sciverse 线上获取。",
-            "This app uses no local paper or demo data. After configuration, papers, Entities, Relations, Citations, and Evidence are fetched from Sciverse online.",
+            "探索需要 Sciverse 与 LLM 两个连接。论文、Entity、Relation、Citation 和 Evidence 均从 Sciverse 线上获取；LLM 只负责检索规划和基于 Schema 的导读。",
+            "Exploration requires both Sciverse and LLM connections. Papers, Entities, Relations, Citations, and Evidence come from Sciverse; the LLM is used only for query planning and Schema-grounded guides.",
           )}</p>
           <button type="button" onClick={openSettings}>{tr("打开连接设置", "Open connection settings")}</button>
         </div>
@@ -2010,7 +2080,7 @@ function OverviewStage({ graph, filteredGraph, graphRef, cardRef, selectNode, se
 
 function ResearchWorkspace({ graph, guide, queryPlan, activeQuery, researchView, setResearchView, graphRef, cardRef, selectNode, selectEdge, openPaper, exportGraph, busy, sidebarOpen, toggleSidebar, startPaneResize, resizePaneWithKeyboard, resetPaneWidth, paneWidth, onLevelBack, levelBackLabel }: {
   graph: GraphPayload;
-  guide: ReadingGuide | null;
+  guide: ReadingGuide;
   queryPlan: QueryPlan | null;
   activeQuery: string;
   researchView: ResearchView;
@@ -2038,19 +2108,6 @@ function ResearchWorkspace({ graph, guide, queryPlan, activeQuery, researchView,
   levelBackLabel: string;
 }) {
   const { tr } = useI18n();
-  const fallbackGuide: ReadingGuide = guide || {
-    query: activeQuery,
-    title: tr(`${activeQuery} 的阅读路径`, `Reading path for ${activeQuery}`),
-    summary: tr(
-      "先阅读检索到的种子论文，再沿已解析引用和相关建议扩展。",
-      "Start with the retrieved seed papers, then expand through resolved citations and related suggestions.",
-    ),
-    items: [],
-    scope_note: "",
-    caveats: [],
-    generation_mode: "deterministic",
-  };
-  const papers = graph.nodes.filter((node) => node.node_type === "paper");
   return (
     <section className={`research-workspace ${sidebarOpen ? "" : "guide-hidden"} ${busy ? "is-busy" : ""}`}>
       <aside className="guide-pane">
@@ -2062,36 +2119,31 @@ function ResearchWorkspace({ graph, guide, queryPlan, activeQuery, researchView,
           )}</p>
           {queryPlan && queryPlan.rewrite_source !== "none" ? (
             <div className="query-plan">
-              <small>{queryPlan.rewrite_source === "model" ? tr("模型检索规划", "Model query plan") : tr("本地词表", "Local glossary")}</small>
+              <small>{tr("模型检索规划", "LLM query plan")}</small>
               <strong>{queryPlan.search_queries.join(" · ")}</strong>
             </div>
           ) : null}
         </article>
         <article className="guide-summary">
-          <header><h2>{tr("研究导读", "Research Guide")}</h2><span><Check size={13} /> {fallbackGuide.generation_mode === "model" ? tr("模型增强", "Model enhanced") : tr("规则生成", "Rule based")}</span></header>
+          <header><h2>{tr("研究导读", "Research Guide")}</h2><span><Check size={13} /> {tr("模型生成", "LLM generated")}</span></header>
           <div className="guide-metrics">
             <div><small>{tr("检索节点", "Retrieved nodes")}</small><strong>{graph.nodes.length}</strong></div>
-            <div><small>{tr("导读论文", "Guide papers")}</small><strong>{fallbackGuide.items.length || papers.length}</strong></div>
+            <div><small>{tr("导读论文", "Guide papers")}</small><strong>{guide.items.length}</strong></div>
           </div>
-          <p>{fallbackGuide.scope_note || tr("基于当前会话图谱生成的确定性阅读路径。", "A deterministic reading path grounded in the current session graph.")}</p>
+          <p>{guide.scope_note}</p>
         </article>
         <article className="guide-judgement topic-narrative">
           <span>I</span>
           <div>
-            <h3>{fallbackGuide.generation_mode === "model"
-              ? tr("主题关系与演化概述", "Topic relationships and evolution")
-              : tr("主题关系概述", "Topic relationship overview")}</h3>
+            <h3>{tr("主题关系与演化概述", "Topic relationships and evolution")}</h3>
             <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {fallbackGuide.summary}
+              {guide.summary}
             </ReactMarkdown>
-            {fallbackGuide.model_warning ? (
-              <small>{fallbackGuide.model_warning}</small>
-            ) : null}
           </div>
         </article>
         <section className="guide-section">
           <h3>{tr("建议阅读顺序", "Suggested reading order")}</h3>
-          {(fallbackGuide.items.length ? fallbackGuide.items : papers.map((node, index) => ({ order: index + 1, schema_id: node.schema_id, title: node.label, role: "seed" as const, rationale: node.subtitle || tr("主题论文", "Topic paper") }))).map((item) => (
+          {guide.items.map((item) => (
             <button type="button" className="guide-paper" key={`${item.order}-${item.schema_id}`} onClick={() => openPaper(item.schema_id)}>
               <span>{String(item.order).padStart(2, "0")}</span><div><strong>{inlineScientificText(item.title)}</strong><p>{item.rationale}</p></div><ChevronRight size={16} />
             </button>
@@ -2136,7 +2188,7 @@ function ResearchWorkspace({ graph, guide, queryPlan, activeQuery, researchView,
       <section className="research-visual">
         <VisualHeader
           kicker={researchView === "roadmap" ? tr("卡片阅读路径", "Guided card path") : tr("主题关系图谱", "Topic relationship graph")}
-          title={fallbackGuide.title}
+          title={guide.title}
           graph={graph}
           tabs={[
             { id: "roadmap", label: tr("卡片导读", "Guided Cards") },
@@ -2149,7 +2201,7 @@ function ResearchWorkspace({ graph, guide, queryPlan, activeQuery, researchView,
         <div className="visual-body graph-grid-bg">
           <button className="canvas-level-back" type="button" onClick={onLevelBack}><ArrowLeft size={15} /> {levelBackLabel}</button>
           {researchView === "roadmap"
-            ? <RoadmapBoard ref={cardRef} guide={fallbackGuide} graph={graph} onOpenPaper={openPaper} />
+            ? <RoadmapBoard ref={cardRef} guide={guide} graph={graph} onOpenPaper={openPaper} />
             : <GraphCanvas ref={graphRef} graph={graph} variant="subgraph" onSelectNode={selectNode} onSelectEdge={selectEdge} />}
         </div>
       </section>
@@ -2779,8 +2831,9 @@ function SciverseSettingsForm({ onChanged }: {
   );
 }
 
-function LocalSettingsPage({ onSciverseChanged }: {
+function LocalSettingsPage({ onSciverseChanged, onModelChanged }: {
   onSciverseChanged: (status: SciverseConfigStatus) => Promise<void>;
+  onModelChanged: (status: ModelConfigStatus) => Promise<void>;
 }) {
   const { tr } = useI18n();
   const [status, setStatus] = useState<ModelConfigStatus | null>(null);
@@ -2824,8 +2877,11 @@ function LocalSettingsPage({ onSciverseChanged }: {
     setFailure("");
     setNotice("");
     try {
-      await persistConfig(clearApiKey);
-      setNotice(clearApiKey ? tr("密钥已清除。", "Secret key cleared.") : tr("配置已保存到本地。", "Configuration saved locally."));
+      const next = await persistConfig(clearApiKey);
+      await onModelChanged(next);
+      setNotice(clearApiKey
+        ? tr("LLM 密钥已清除；探索功能已暂停。", "LLM key cleared; exploration is now paused.")
+        : tr("LLM 配置已保存，可以用于探索。", "LLM configuration saved and ready for exploration."));
     } catch (reason: unknown) {
       setFailure(messageOf(reason));
     } finally {
@@ -2867,8 +2923,8 @@ function LocalSettingsPage({ onSciverseChanged }: {
           <span><Settings2 size={16} /> {tr("仅本地配置", "Local-only configuration")}</span>
           <h2>{tr("连接线上数据与导读模型", "Connect online data and a guide model")}</h2>
           <p>{tr(
-            "Sciverse Key 和模型密钥由本页面管理，并以明文保存在项目根目录的同一个 local.config.json 中。论文与图谱数据不会写入本地。",
-            "This page manages both keys. They are stored as plaintext in one local.config.json at the project root; papers and graph data are never written locally.",
+            "开始探索前必须同时配置 Sciverse Key 和 LLM 密钥。两者由本页面管理，并以明文保存在项目根目录的同一个 local.config.json 中；论文与图谱数据不会写入本地。",
+            "Both the Sciverse key and the LLM secret are required before exploration. This page stores them as plaintext in one local.config.json at the project root; papers and graph data are never written locally.",
           )}</p>
         </header>
 
@@ -2889,7 +2945,7 @@ function LocalSettingsPage({ onSciverseChanged }: {
             <div className="settings-status">
               <span className={status?.configured ? "ready" : "idle"} />
               <div>
-                <strong>{status?.configured ? tr("模型增强已就绪", "Model enhancement ready") : tr("模型尚未配置", "Model not configured")}</strong>
+                <strong>{status?.configured ? tr("LLM 连接已就绪", "LLM connection ready") : tr("需要配置 LLM", "LLM configuration required")}</strong>
                 <p>{status?.api_key_set ? tr(`已保存密钥 ${status.api_key_hint}`, `Saved key ${status.api_key_hint}`) : tr("未保存密钥", "No secret key is stored")}</p>
               </div>
               <label className="switch">
@@ -2931,12 +2987,12 @@ function LocalSettingsPage({ onSciverseChanged }: {
           <aside className="model-roles">
             <h3>{tr("模型介入范围", "Where the model participates")}</h3>
             <article>
-              <span className="role-required">{tr("中文检索需要", "Required for Chinese")}</span>
+              <span className="role-required">{tr("探索必需", "Required for exploration")}</span>
               <strong>{tr("检索规划", "Query planning")}</strong>
-              <p>{tr("将中文问题转换为简短英文检索短语；没有模型时仅提供有限的本地 AI 词表。", "Translates Chinese questions into short English retrieval phrases. Without a model, only a small local AI glossary is available.")}</p>
+              <p>{tr("将中文、英文或长问题改写为简短英文检索短语；未配置 LLM 时应用会暂停探索并提示配置。", "Rewrites Chinese, English, or long questions into concise English retrieval phrases. Exploration is paused until an LLM is configured.")}</p>
             </article>
             <article>
-              <span className="role-optional">{tr("可选增强", "Optional enhancement")}</span>
+              <span className="role-required">{tr("探索必需", "Required for exploration")}</span>
               <strong>{tr("研究导读与论文概述", "Research guides and paper overviews")}</strong>
               <p>{tr(
                 "只读取 Sciverse 返回的结构化元数据、Entity、Relation 与 Citation；不把全文段落发送给模型，也不允许模型增加事实。",

@@ -23,7 +23,7 @@ Sciverse Paper Schema corpus.
 
 FrontierLens plans retrieval terms, finds seed papers, expands their extracted
 structure, assembles the topic graph, and generates a grounded reading guide.
-The optional model receives structured Paper Schema material rather than
+The required model receives structured Paper Schema material rather than
 complete papers.
 
 ![Enter the guided research workflow](docs/images/promo/02-research-workflow.png)
@@ -84,11 +84,10 @@ FrontierLens instance. Results may change as the Paper Schema corpus evolves.
   version when the selected formal publication has no paragraph rows.
 - Shows real, cancellable progress for topic exploration and paper opening.
 - Provides adjustable and collapsible paper-guide and source-reader panes.
-- Produces a deterministic reading guide grounded only in graph paper IDs.
-- Optionally rewrites Chinese or long-form questions into concise English
-  retrieval phrases with a locally configured OpenAI-compatible model.
-- Optionally produces a grounded research guide using only paper IDs already
-  returned by Sciverse.
+- Rewrites questions into concise English retrieval phrases with the required
+  locally configured OpenAI-compatible model.
+- Produces a grounded research guide using only paper IDs already returned by
+  Sciverse. A model failure stops the task and is reported to the user.
 - Switches the interface and generated Guide/Roadmap between Chinese and
   English while retaining source paper, Entity, Evidence, and provenance text.
 - Preserves the FrontierLens three-state journey:
@@ -119,7 +118,7 @@ from the full scholarly literature.
 - Node.js 22 or newer
 - npm
 - A Sciverse API key
-- An OpenAI-compatible model endpoint is optional
+- An OpenAI-compatible model endpoint, model name, and API key
 
 ## Install and run
 
@@ -145,21 +144,22 @@ make frontend
 Open [http://127.0.0.1:3040](http://127.0.0.1:3040).
 
 A fresh installation starts unconfigured and shows no research data. Open
-**Connection settings**, enter the Sciverse API Base URL and key, then use
-**Test online API** before saving. Once connected, all papers and graph facts
-are fetched from the live Sciverse API.
+**Connection settings**, configure, save, and enable both the Sciverse
+connection and the OpenAI-compatible model connection. Exploration remains
+paused until both connections are enabled. All papers and graph facts are
+fetched from the live Sciverse API.
 
 **No `.env` file is required for normal use.** Configure the Sciverse
-connection and the optional model connection entirely from the web settings
+connection and the required model connection entirely from the web settings
 page.
 
-The Sciverse and optional model connections are managed from the same page and
+The Sciverse and model connections are managed from the same page and
 stored together as plaintext in `local.config.json` in the directory where
 FrontierLens is started. The file is ignored by Git and written with owner-only
 permissions on supported systems. It contains credentials and connection
-settings only, never papers or graph data. Without a model, English keyword
-search works normally and a small Chinese AI glossary provides a limited
-fallback.
+settings only, never papers or graph data. If either key is missing or disabled,
+the application identifies the missing connection and directs the user to
+Local Settings instead of starting an incomplete exploration.
 
 OpenAI-compatible model endpoints may use HTTP or HTTPS in this standalone
 local application. Prefer HTTPS because plain HTTP does not encrypt the model
@@ -179,8 +179,9 @@ SCIVERSE_API_TOKEN=<server-side token>
 `.env` is ignored by Git. Do not put the token in frontend environment
 variables, URLs, screenshots, logs, or committed files.
 
-The Sciverse key and optional model secret are separate credentials. Both may
-be configured from Local Settings; environment variables are startup defaults.
+The Sciverse key and model secret are separate required credentials. Both are
+normally configured from Local Settings; environment variables are startup
+defaults for managed or scripted environments.
 
 Run the read-only production check:
 

@@ -66,11 +66,11 @@ describe("FrontierLens unconfigured application", () => {
     }));
   });
 
-  it("shows no graph or research data without Sciverse configuration", async () => {
+  it("shows no graph or research data until both connections can be configured", async () => {
     renderApp();
 
     expect(await screen.findByRole("heading", {
-      name: "Connect Sciverse to start exploring",
+      name: "Configure Sciverse and LLM to start exploring",
     })).toBeInTheDocument();
     expect(screen.queryByLabelText("Research graph")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Explore" })).toBeDisabled();
@@ -101,7 +101,7 @@ describe("FrontierLens unconfigured application", () => {
   it("resizes the overview sidebar by keyboard and pointer", async () => {
     renderApp();
     await screen.findByRole("heading", {
-      name: "Connect Sciverse to start exploring",
+      name: "Configure Sciverse and LLM to start exploring",
     });
     const separator = screen.getByRole("separator", { name: "Resize sidebar" });
 
@@ -120,6 +120,102 @@ describe("FrontierLens unconfigured application", () => {
     fireEvent(window, new MouseEvent("pointerup", { bubbles: true }));
     fireEvent.doubleClick(separator);
     expect(separator).toHaveAttribute("aria-valuenow", "264");
+  });
+
+  it("blocks exploration with an explicit prompt when only the LLM is missing", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.includes("capabilities")) return jsonResponse(configuredCapabilities);
+      if (path.includes("settings/sciverse")) return jsonResponse(configuredSciverse);
+      if (path.includes("settings/model")) {
+        return jsonResponse({
+          ...configuredModel,
+          configured: false,
+          api_key_set: false,
+          api_key_hint: null,
+        });
+      }
+      if (path.includes("discovery-map")) return jsonResponse(discoveryGraph);
+      return notFound();
+    }));
+    renderApp();
+    expect((await screen.findAllByText("LLM key required")).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: /Test Paper/ })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Research Question"), {
+      target: { value: "transformer architecture" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Explore" }));
+
+    expect(await screen.findByRole("heading", {
+      name: "Local Connection Settings",
+    })).toBeInTheDocument();
+    expect(screen.getByText(
+      "Configure and enable the LLM API key before continuing.",
+    )).toBeInTheDocument();
+    expect(vi.mocked(fetch).mock.calls.some(([input]) =>
+      String(input).includes("topic-explore"))).toBe(false);
+  });
+
+  it("saves both connection forms without leaving settings between saves", async () => {
+    let sciverseConfigured = false;
+    let modelConfigured = false;
+    vi.stubGlobal("fetch", vi.fn(async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
+      const path = String(input);
+      if (path.includes("capabilities")) return jsonResponse(configuredCapabilities);
+      if (path.endsWith("/api/settings/sciverse")) {
+        if (init?.method === "PUT") sciverseConfigured = true;
+        return jsonResponse({
+          ...configuredSciverse,
+          configured: sciverseConfigured,
+          api_key_set: sciverseConfigured,
+          api_key_hint: sciverseConfigured ? "sv-••••test" : null,
+        });
+      }
+      if (path.endsWith("/api/settings/model")) {
+        if (init?.method === "PUT") modelConfigured = true;
+        return jsonResponse({
+          ...configuredModel,
+          configured: modelConfigured,
+          api_key_set: modelConfigured,
+          api_key_hint: modelConfigured ? "••••test" : null,
+        });
+      }
+      if (path.includes("discovery-map")) return jsonResponse(discoveryGraph);
+      return notFound();
+    }));
+    renderApp();
+    fireEvent.click(screen.getByTitle("Connection settings"));
+    await screen.findByRole("heading", { name: "Local Connection Settings" });
+
+    fireEvent.change(screen.getByLabelText("Sciverse API Key"), {
+      target: { value: "sv-test-value" },
+    });
+    fireEvent.change(screen.getByLabelText("Secret key"), {
+      target: { value: "sk-test-value" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save connection" }));
+
+    expect(await screen.findByText("Sciverse connection saved.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", {
+      name: "Local Connection Settings",
+    })).toBeInTheDocument();
+    expect(screen.getByLabelText("Secret key")).toHaveValue("sk-test-value");
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByText(
+      "LLM configuration saved and ready for exploration.",
+    )).toBeInTheDocument();
+    expect(screen.getByRole("heading", {
+      name: "Local Connection Settings",
+    })).toBeInTheDocument();
+    expect(vi.mocked(fetch).mock.calls.some(([input]) =>
+      String(input).includes("discovery-map"))).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    expect(await screen.findByRole("button", { name: /Test Paper/ })).toBeInTheDocument();
   });
 
   it("tests the current model draft without saving it", async () => {
@@ -274,6 +370,7 @@ describe("FrontierLens configured research flows", () => {
       const path = String(input);
       if (path.includes("capabilities")) return jsonResponse(configuredCapabilities);
       if (path.includes("settings/sciverse")) return jsonResponse(configuredSciverse);
+      if (path.includes("settings/model")) return jsonResponse(configuredModel);
       if (path.includes("discovery-map")) return jsonResponse(discoveryGraph);
       return notFound();
     }));
@@ -303,7 +400,8 @@ describe("FrontierLens configured research flows", () => {
       askExample: vi.fn(),
       busy: false,
       capabilities: configuredCapabilities as Capabilities,
-      configured: true,
+      sciverseConfigured: true,
+      modelConfigured: true,
       openSettings: vi.fn(),
       visibleNodeTypes: { Paper: true },
       visibleEdgeTypes: {
@@ -341,6 +439,7 @@ describe("FrontierLens configured research flows", () => {
       const path = String(input);
       if (path.includes("capabilities")) return jsonResponse(configuredCapabilities);
       if (path.includes("settings/sciverse")) return jsonResponse(configuredSciverse);
+      if (path.includes("settings/model")) return jsonResponse(configuredModel);
       if (path.includes("discovery-map")) return jsonResponse(discoveryGraph);
       if (path.includes("topic-explore/stream")) {
         return await new Promise<Response>(() => {});
@@ -364,6 +463,76 @@ describe("FrontierLens configured research flows", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 
+  it("stops paper opening when the LLM overview fails", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (
+      input: RequestInfo | URL,
+    ) => {
+      const path = String(input);
+      if (path.includes("capabilities")) return jsonResponse(configuredCapabilities);
+      if (path.includes("settings/sciverse")) return jsonResponse(configuredSciverse);
+      if (path.includes("settings/model")) return jsonResponse(configuredModel);
+      if (path.includes("discovery-map")) return jsonResponse(discoveryGraph);
+      if (path.endsWith("/api/papers/paper-1/reading-source")) {
+        return jsonResponse({
+          requested_schema_id: "paper-1",
+          active_schema_id: "paper-1",
+          canonical_document: paperCard,
+          active_document: paperCard,
+          used_equivalent_version: false,
+          active_reason: "requested_full_text",
+        });
+      }
+      if (path.endsWith("/api/papers/paper-1/graph")) return jsonResponse(paperGraph);
+      if (path.includes("/api/papers/paper-1/overview")) {
+        return jsonResponse({
+          error: {
+            code: "MODEL_REQUEST_FAILED",
+            message: "model endpoint is unreachable",
+            retryable: true,
+            request_id: "test-request",
+          },
+        }, 502);
+      }
+      if (path.includes("/api/papers/paper-1/citations")) {
+        return jsonResponse({
+          schema_id: "paper-1",
+          items: [],
+          total: 0,
+          returned: 0,
+          truncated: false,
+        });
+      }
+      if (path.includes("/api/evidence/search")) {
+        return jsonResponse({
+          items: [],
+          next_cursor: null,
+          fallback_recommended: false,
+        });
+      }
+      if (path.includes("/api/papers/paper-1/paragraphs")) {
+        return jsonResponse({
+          schema_id: "paper-1",
+          segments: [],
+          returned: 0,
+          next_marker: null,
+          complete: true,
+        });
+      }
+      return notFound();
+    }));
+    renderApp();
+    fireEvent.click(await screen.findByRole("button", { name: /Test Paper/ }));
+
+    const dialog = await screen.findByRole("dialog", {
+      name: "Opening the paper structure",
+    });
+    expect(dialog).toHaveTextContent("model endpoint is unreachable");
+    expect(screen.getByRole("heading", {
+      name: "Knowledge Discovery Map",
+    })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Reading Guide" })).not.toBeInTheDocument();
+  });
+
   it("opens a paper, exposes resizable panes, and reads ordered paragraphs", async () => {
     vi.stubGlobal("fetch", vi.fn(async (
       input: RequestInfo | URL,
@@ -371,6 +540,7 @@ describe("FrontierLens configured research flows", () => {
       const path = String(input);
       if (path.includes("capabilities")) return jsonResponse(configuredCapabilities);
       if (path.includes("settings/sciverse")) return jsonResponse(configuredSciverse);
+      if (path.includes("settings/model")) return jsonResponse(configuredModel);
       if (path.includes("discovery-map")) return jsonResponse(discoveryGraph);
       if (path.endsWith("/api/papers/paper-1/reading-source")) {
         return jsonResponse({
@@ -568,6 +738,7 @@ describe("FrontierLens configured research flows", () => {
       const path = String(input);
       if (path.includes("capabilities")) return jsonResponse(configuredCapabilities);
       if (path.includes("settings/sciverse")) return jsonResponse(configuredSciverse);
+      if (path.includes("settings/model")) return jsonResponse(configuredModel);
       if (path.includes("discovery-map")) return jsonResponse(discoveryGraph);
       if (path.endsWith("/api/papers/paper-1/reading-source")) {
         return jsonResponse({
@@ -684,9 +855,9 @@ function json(value: unknown) {
   return Promise.resolve(jsonResponse(value));
 }
 
-function jsonResponse(value: unknown) {
+function jsonResponse(value: unknown, status = 200) {
   return new Response(JSON.stringify(value), {
-    status: 200,
+    status,
     headers: { "Content-Type": "application/json" },
   });
 }
@@ -711,6 +882,19 @@ const configuredSciverse = {
   api_key_set: true,
   api_key_hint: "••••test",
   timeout_seconds: 20,
+  storage: "local_project_json",
+  storage_path: "/project/local.config.json",
+};
+
+const configuredModel = {
+  enabled: true,
+  configured: true,
+  base_url: "https://models.example/v1",
+  model: "guide-model",
+  api_key_set: true,
+  api_key_hint: "••••test",
+  timeout_seconds: 30,
+  allow_insecure_http: false,
   storage: "local_project_json",
   storage_path: "/project/local.config.json",
 };

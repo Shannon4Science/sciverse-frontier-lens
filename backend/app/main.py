@@ -12,7 +12,12 @@ from app.config import get_settings
 from app.errors import UpstreamError
 from app.local_config import LocalConfigDocument
 from app.model_config import ModelConfigStore, ModelConnection
-from app.model_runtime import GuideGenerator, ModelRuntime, QueryPlanner
+from app.model_runtime import (
+    GuideGenerator,
+    ModelRuntime,
+    ModelRuntimeError,
+    QueryPlanner,
+)
 from app.models import Coverage, EdgeType, ProductCapabilities
 from app.sciverse_config import (
     SciverseConfigStore,
@@ -158,6 +163,20 @@ def create_app() -> FastAPI:
                 if exc.retry_after is not None
                 else None
             ),
+        )
+
+    @application.exception_handler(ModelRuntimeError)
+    async def model_error_handler(request: Request, exc: ModelRuntimeError) -> JSONResponse:
+        return JSONResponse(
+            status_code=502,
+            content={
+                "error": {
+                    "code": "MODEL_REQUEST_FAILED",
+                    "message": str(exc) or "The LLM request failed.",
+                    "retryable": True,
+                    "request_id": request.state.request_id,
+                }
+            },
         )
 
     @application.get("/healthz", include_in_schema=False)

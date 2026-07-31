@@ -54,7 +54,11 @@ retry, quota handling, and request IDs are owned by the backend-for-frontend.
 
 An LLM may organize a guide or roadmap, but every statement must be grounded in
 the closed API result set and traceable to paper, entity, relation, citation, or
-evidence identifiers. The deterministic experience works without an LLM.
+evidence identifiers. Sciverse and LLM connections must both be configured and
+enabled before research workflows begin. Missing configuration or any LLM
+request, parsing, or output-contract failure stops the current task and is
+reported to the user; no dictionary or deterministic guide is returned as a
+successful fallback.
 
 ## AD-010: Coverage statement
 

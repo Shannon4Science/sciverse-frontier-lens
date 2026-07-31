@@ -21,15 +21,15 @@ Open **Connection settings** and enter:
 - Request timeout
 
 Normal local use does not require a `.env` file. Configure the Sciverse
-connection and the optional model connection from this settings page.
+connection and the model connection from this settings page.
 
-Use **Test online API** to verify the current form. Testing does not save the
-form. Use **Save connection** only after the test succeeds.
+Use **Test online API** when you want to verify the current form. Testing does
+not save the form; **Save connection** stores and enables it.
 
 The key is stored as plaintext in `local.config.json` in the directory where
 FrontierLens was started. Do not commit or share this file.
 
-## 3. Optionally configure a model
+## 3. Configure the required model connection
 
 FrontierLens accepts an OpenAI-compatible `/chat/completions` endpoint. Enter
 the base URL, model name, secret, and timeout. The model is used only for:
@@ -40,7 +40,12 @@ the base URL, model name, secret, and timeout. The model is used only for:
 
 The model cannot add a paper, Entity, Relation, Citation, Evidence item, or
 source paragraph. Full paper text is not the default input to guide generation.
-Without a model, English search and deterministic guides remain available.
+Exploration starts only after both Sciverse and model connections are configured
+and enabled. If either connection is missing, FrontierLens names the missing
+key and opens Local Settings. If a configured model request times out, fails,
+or returns invalid structured output, the current exploration or paper-opening
+task stops and displays that error. FrontierLens does not substitute a local
+glossary, deterministic guide, or rule-generated paper overview.
 
 ## 4. Explore a topic
 

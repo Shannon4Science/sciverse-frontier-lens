@@ -170,6 +170,31 @@ h1, h2, h3, p { margin-top: 0; }
   font-weight: 800;
   box-shadow: 0 6px 16px rgba(39, 98, 223, .22);
 }
+.research-prerequisite {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) 16px;
+  gap: 8px;
+  align-items: center;
+  margin-top: 9px;
+  padding: 10px 11px;
+  border: 1px solid #e1b56e;
+  border-radius: 8px;
+  color: #6c4a16;
+  text-align: left;
+  background: #fff9ed;
+}
+.research-prerequisite:hover { border-color: #c88d2e; background: #fff5df; }
+.research-prerequisite > svg { color: #b97614; }
+.research-prerequisite span { min-width: 0; }
+.research-prerequisite strong { display: block; font-size: 12px; line-height: 1.4; }
+.research-prerequisite small {
+  display: block;
+  margin-top: 3px;
+  color: #7b633f;
+  font-size: 11px;
+  line-height: 1.45;
+}
 .example-list { display: grid; gap: 8px; margin-top: 9px; }
 .example-list button {
   width: 100%;

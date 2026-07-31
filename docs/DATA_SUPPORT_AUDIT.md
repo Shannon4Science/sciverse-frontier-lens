@@ -22,14 +22,16 @@ Verified against the public Paper Schema API implementation and contracts on
 
 Chinese and long natural-language questions are rewritten into one to three
 short English search phrases. This is necessary for reliable recall because
-the indexed source text is predominantly English. A small local glossary is a
-fallback, not a general Chinese search solution.
+the indexed source text is predominantly English. FrontierLens therefore
+requires a configured and enabled model before starting exploration.
+The local glossary is not exposed as a successful no-model operating mode.
 
 ### Research guide
 
 The model may order and explain only papers already present in the assembled
 session graph. Returned Schema IDs are validated against that graph. If the
-model fails, a deterministic guide is returned.
+model request fails or returns invalid structured output, the current task
+fails explicitly and no guide or overview is substituted.
 
 The reading order, stage labels and narrative summary are product-level
 derivations. They are not fields returned by Sciverse and must not be presented
